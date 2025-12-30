@@ -104,11 +104,11 @@
     
     <div id="status">Initializing observation chamber...</div>
     
-    <!-- Three.js and WebXR -->
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
-    <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/webxr/VRButton.js"></script>
-    
-    <script>
+    <!-- Three.js and WebXR via esm.sh -->
+    <script type="module">
+        import * as THREE from 'https://esm.sh/three@0.160.0';
+        import { VRButton } from 'https://esm.sh/three@0.160.0/examples/jsm/webxr/VRButton.js';
+        
         // ===== CONFIGURATION =====
         const CONFIG = {
             // World generation
@@ -122,10 +122,10 @@
             
             // Dome
             domeRadius: 2,
-            domePosition: new THREE.Vector3(0, 0, -3),
+            domePosition: null, // Set in init()
             
             // User position (seated, looking at dome)
-            userPosition: new THREE.Vector3(0, 1.2, 0)
+            userPosition: null // Set in init()
         };
         
         // ===== STATE =====
@@ -153,6 +153,10 @@
         
         // ===== INITIALIZATION =====
         function init() {
+            // Initialize Vector3 values
+            CONFIG.domePosition = new THREE.Vector3(0, 0, -3);
+            CONFIG.userPosition = new THREE.Vector3(0, 1.2, 0);
+            
             const container = document.getElementById('container');
             
             // Scene
@@ -1007,3 +1011,4 @@
     </script>
 </body>
 </html>
+

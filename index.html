@@ -200,6 +200,9 @@
             // Non-VR keyboard controls
             window.addEventListener('keydown', onKeyDown);
             
+            // Click to synthesize
+            renderer.domElement.addEventListener('click', onCanvasClick);
+            
             // Start
             updateStatus('Ready. Enter VR or press SPACE to synthesize.');
             renderer.setAnimationLoop(animate);
@@ -431,6 +434,11 @@
             );
             innerPlatform.position.y = 0.03;
             dome.add(innerPlatform);
+            
+            // Interior light to illuminate planets
+            const interiorLight = new THREE.PointLight(0xffffff, 1.5, 5);
+            interiorLight.position.y = 1.5;
+            dome.add(interiorLight);
             
             scene.add(dome);
         }
@@ -692,38 +700,51 @@
         
         // ===== PLANET CREATION =====
         function createPlanet(params, isEctopic) {
+            console.log('Creating planet with params:', params, 'isEctopic:', isEctopic);
             const planetGroup = new THREE.Group();
             
-            // Color based on parameters
+            // Color based on parameters - make it brighter
             const hue = (params.bloom * 0.006 + params.flow * 0.003) % 1;
-            const saturation = 0.5 + params.matrix * 0.003;
-            const lightness = 0.4 + params.myth * 0.002;
+            const saturation = 0.6 + params.matrix * 0.003;
+            const lightness = 0.5 + params.myth * 0.003; // Brighter
             
             const baseColor = new THREE.Color().setHSL(hue, saturation, lightness);
             const atmosphereColor = new THREE.Color().setHSL((hue + 0.1) % 1, saturation * 0.8, lightness * 1.2);
             
-            // Planet core
-            const planetGeometry = new THREE.SphereGeometry(0.6, 64, 64);
-            const planetMaterial = new THREE.MeshPhongMaterial({
+            console.log('Planet color HSL:', hue, saturation, lightness);
+            
+            // Planet core - larger and more emissive
+            const planetGeometry = new THREE.SphereGeometry(0.8, 64, 64);
+            const planetMaterial = new THREE.MeshStandardMaterial({
                 color: baseColor,
-                emissive: baseColor.clone().multiplyScalar(0.15),
-                shininess: 30,
-                transparent: true,
-                opacity: isEctopic ? 0.85 : 1
+                emissive: baseColor,
+                emissiveIntensity: 0.4,
+                metalness: 0.2,
+                roughness: 0.7
             });
             const planetMesh = new THREE.Mesh(planetGeometry, planetMaterial);
             planetGroup.add(planetMesh);
             
-            // Atmosphere
-            const atmosphereGeometry = new THREE.SphereGeometry(0.72, 32, 32);
+            // Atmosphere - more visible
+            const atmosphereGeometry = new THREE.SphereGeometry(0.95, 32, 32);
             const atmosphereMaterial = new THREE.MeshBasicMaterial({
                 color: atmosphereColor,
                 transparent: true,
-                opacity: 0.15,
+                opacity: 0.25,
                 side: THREE.BackSide
             });
             atmosphere = new THREE.Mesh(atmosphereGeometry, atmosphereMaterial);
             planetGroup.add(atmosphere);
+            
+            // Inner glow
+            const glowGeometry = new THREE.SphereGeometry(0.82, 32, 32);
+            const glowMaterial = new THREE.MeshBasicMaterial({
+                color: isEctopic ? 0xff00aa : 0x00d4ff,
+                transparent: true,
+                opacity: 0.15
+            });
+            const glow = new THREE.Mesh(glowGeometry, glowMaterial);
+            planetGroup.add(glow);
             
             // Surface features based on parameters
             if (params.flow > 30) {
@@ -817,9 +838,11 @@
         
         // ===== WORLD SYNTHESIS =====
         function synthesizeWorld() {
+            console.log('synthesizeWorld called, isSynthesizing:', isSynthesizing);
             if (isSynthesizing) return;
             isSynthesizing = true;
             
+            console.log('Starting synthesis...');
             updateStatus('SYNTHESIZING...');
             
             // Determine fate
@@ -847,9 +870,11 @@
             
             // Create new planet
             planet = createPlanet(parameters, isEctopic);
-            planet.position.y = 1;
-            planet.scale.set(0, 0, 0);
+            planet.position.y = 1.2; // Centered in dome
+            planet.scale.set(0.01, 0.01, 0.01); // Start tiny, not zero
             dome.add(planet);
+            
+            console.log('Planet added to dome at position:', planet.position);
             
             // Animate formation
             animatePlanetFormation(() => {
@@ -874,6 +899,7 @@
         function animatePlanetFormation(onComplete) {
             const duration = 2000;
             const startTime = Date.now();
+            console.log('Starting planet formation animation');
             
             function animate() {
                 const elapsed = Date.now() - startTime;
@@ -886,6 +912,8 @@
                 if (progress < 1) {
                     requestAnimationFrame(animate);
                 } else {
+                    planet.scale.set(1, 1, 1); // Ensure full scale
+                    console.log('Planet formation complete, scale:', planet.scale);
                     if (onComplete) onComplete();
                 }
             }
@@ -895,10 +923,20 @@
         
         // ===== INPUT =====
         function onKeyDown(event) {
+            console.log('Key pressed:', event.code);
             if (event.code === 'Space') {
+                event.preventDefault();
                 synthesizeWorld();
             } else if (event.code === 'KeyC') {
                 clearChamber();
+            }
+        }
+        
+        // Click to synthesize (backup for keyboard issues)
+        function onCanvasClick(event) {
+            console.log('Canvas clicked');
+            if (!isSynthesizing) {
+                synthesizeWorld();
             }
         }
         

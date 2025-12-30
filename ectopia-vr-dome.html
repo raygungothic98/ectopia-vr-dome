@@ -1,0 +1,1009 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Ectopia VR - Observation Chamber</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        
+        body {
+            font-family: 'Segoe UI', system-ui, sans-serif;
+            background: #0a0e1a;
+            color: #e8f0ff;
+            overflow: hidden;
+            height: 100vh;
+        }
+        
+        #container {
+            width: 100%;
+            height: 100%;
+        }
+        
+        #info {
+            position: absolute;
+            top: 20px;
+            left: 50%;
+            transform: translateX(-50%);
+            text-align: center;
+            z-index: 100;
+            background: rgba(10, 14, 26, 0.9);
+            padding: 20px 30px;
+            border-radius: 12px;
+            border: 1px solid rgba(200, 210, 255, 0.15);
+            max-width: 600px;
+        }
+        
+        #info h1 {
+            font-size: 1.8rem;
+            font-weight: 300;
+            letter-spacing: 0.2em;
+            margin-bottom: 10px;
+            background: linear-gradient(135deg, #00d4ff, #ff00aa);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+        }
+        
+        #info p {
+            font-size: 0.9rem;
+            color: #a8b8d8;
+            line-height: 1.6;
+            margin-bottom: 8px;
+        }
+        
+        #info .controls {
+            font-size: 0.75rem;
+            color: #6a7a9a;
+            margin-top: 15px;
+            padding-top: 15px;
+            border-top: 1px solid rgba(200, 210, 255, 0.1);
+        }
+        
+        #status {
+            position: absolute;
+            bottom: 20px;
+            left: 50%;
+            transform: translateX(-50%);
+            font-size: 0.85rem;
+            color: #00d4ff;
+            background: rgba(10, 14, 26, 0.9);
+            padding: 12px 24px;
+            border-radius: 8px;
+            border: 1px solid rgba(0, 212, 255, 0.3);
+            z-index: 100;
+        }
+        
+        /* VR Button styling override */
+        #VRButton {
+            background: linear-gradient(135deg, #00d4ff, #aa00ff) !important;
+        }
+        
+        .hidden {
+            display: none !important;
+        }
+    </style>
+</head>
+<body>
+    <div id="container"></div>
+    
+    <div id="info">
+        <h1>◆ ECTOPIA</h1>
+        <p>Observation Chamber — Dr. Okafor's Laboratory</p>
+        <p>Step inside the synthesis dome aboard the generation ship Persephone.</p>
+        <div class="controls">
+            <strong>VR Controls:</strong><br>
+            • <strong>Grip + Move</strong> — Adjust parameters (each controller axis)<br>
+            • <strong>Trigger</strong> — Synthesize world<br>
+            • <strong>A/X Button</strong> — Clear chamber / Mourn
+        </div>
+    </div>
+    
+    <div id="status">Initializing observation chamber...</div>
+    
+    <!-- Three.js and WebXR -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/webxr/VRButton.js"></script>
+    
+    <script>
+        // ===== CONFIGURATION =====
+        const CONFIG = {
+            // World generation
+            ectopicChance: 0.7,
+            
+            // Colors
+            accentCyan: 0x00d4ff,
+            accentMagenta: 0xff00aa,
+            accentAmber: 0xffaa00,
+            accentViolet: 0xaa00ff,
+            
+            // Dome
+            domeRadius: 2,
+            domePosition: new THREE.Vector3(0, 0, -3),
+            
+            // User position (seated, looking at dome)
+            userPosition: new THREE.Vector3(0, 1.2, 0)
+        };
+        
+        // ===== STATE =====
+        let scene, camera, renderer;
+        let dome, planet, atmosphere;
+        let controllers = [];
+        let controllerGrips = [];
+        let parameters = { bloom: 50, matrix: 50, flow: 50, myth: 50 };
+        let currentWorld = null;
+        let isSynthesizing = false;
+        let parameterOrbs = [];
+        let floatingPanels = [];
+        
+        // World data
+        const prefixes = ['Nova', 'Veil', 'Echo', 'Drift', 'Pale', 'Deep', 'Last', 'First', 'Quiet', 'Bright'];
+        const suffixes = ['Harbor', 'Garden', 'Cradle', 'Reach', 'Shore', 'Haven', 'Crown', 'Heart', 'Rest', 'Rise'];
+        const fateSubtypes = {
+            ectopic: ['ORBITAL DECAY', 'STELLAR MISMATCH', 'TEMPORAL DESYNC', 'VOLATILE DISPLACEMENT', 'CATACLYSMIC'],
+            stable: ['RESONANT', 'HARMONIZED', 'SUSTAINABLE']
+        };
+        const lifespans = {
+            ectopic: ['Hours. Maybe days.', 'Weeks at most.', 'A season, perhaps.', 'Brief but bright.'],
+            stable: ['Generations.', 'Epochs ahead.', 'Until the stars dim.', 'Long enough to matter.']
+        };
+        
+        // ===== INITIALIZATION =====
+        function init() {
+            const container = document.getElementById('container');
+            
+            // Scene
+            scene = new THREE.Scene();
+            scene.background = new THREE.Color(0x050810);
+            
+            // Camera
+            camera = new THREE.PerspectiveCamera(70, window.innerWidth / window.innerHeight, 0.1, 100);
+            camera.position.copy(CONFIG.userPosition);
+            
+            // Renderer with WebXR
+            renderer = new THREE.WebGLRenderer({ antialias: true });
+            renderer.setSize(window.innerWidth, window.innerHeight);
+            renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+            renderer.xr.enabled = true;
+            renderer.toneMapping = THREE.ACESFilmicToneMapping;
+            renderer.toneMappingExposure = 1.0;
+            container.appendChild(renderer.domElement);
+            
+            // VR Button
+            const vrButton = VRButton.createButton(renderer);
+            vrButton.style.background = 'linear-gradient(135deg, #00d4ff, #aa00ff)';
+            document.body.appendChild(vrButton);
+            
+            // Lighting
+            setupLighting();
+            
+            // Environment
+            createStarfield();
+            createShipInterior();
+            createDome();
+            createParameterOrbs();
+            createFloatingUI();
+            
+            // Controllers
+            setupControllers();
+            
+            // Events
+            window.addEventListener('resize', onWindowResize);
+            
+            // Non-VR keyboard controls
+            window.addEventListener('keydown', onKeyDown);
+            
+            // Start
+            updateStatus('Ready. Enter VR or press SPACE to synthesize.');
+            renderer.setAnimationLoop(animate);
+        }
+        
+        // ===== LIGHTING =====
+        function setupLighting() {
+            // Ambient
+            const ambient = new THREE.AmbientLight(0x404060, 0.3);
+            scene.add(ambient);
+            
+            // Key light (simulating ship interior lighting)
+            const keyLight = new THREE.DirectionalLight(0xffffff, 0.5);
+            keyLight.position.set(5, 5, 5);
+            scene.add(keyLight);
+            
+            // Accent lights
+            const cyanLight = new THREE.PointLight(CONFIG.accentCyan, 0.8, 15);
+            cyanLight.position.set(-3, 2, -2);
+            scene.add(cyanLight);
+            
+            const magentaLight = new THREE.PointLight(CONFIG.accentMagenta, 0.5, 15);
+            magentaLight.position.set(3, 1, -4);
+            scene.add(magentaLight);
+            
+            // Dome interior light
+            const domeLight = new THREE.PointLight(0xffffff, 0.3, 5);
+            domeLight.position.copy(CONFIG.domePosition);
+            domeLight.position.y += 1;
+            scene.add(domeLight);
+        }
+        
+        // ===== ENVIRONMENT =====
+        function createStarfield() {
+            const starsGeometry = new THREE.BufferGeometry();
+            const starCount = 2000;
+            const positions = new Float32Array(starCount * 3);
+            const colors = new Float32Array(starCount * 3);
+            
+            for (let i = 0; i < starCount; i++) {
+                // Distribute stars in a sphere around the user
+                const theta = Math.random() * Math.PI * 2;
+                const phi = Math.acos(2 * Math.random() - 1);
+                const r = 30 + Math.random() * 20;
+                
+                positions[i * 3] = r * Math.sin(phi) * Math.cos(theta);
+                positions[i * 3 + 1] = r * Math.sin(phi) * Math.sin(theta);
+                positions[i * 3 + 2] = r * Math.cos(phi);
+                
+                // Slight color variation
+                const brightness = 0.5 + Math.random() * 0.5;
+                colors[i * 3] = brightness;
+                colors[i * 3 + 1] = brightness;
+                colors[i * 3 + 2] = brightness + Math.random() * 0.2;
+            }
+            
+            starsGeometry.setAttribute('position', new THREE.BufferAttribute(positions, 3));
+            starsGeometry.setAttribute('color', new THREE.BufferAttribute(colors, 3));
+            
+            const starsMaterial = new THREE.PointsMaterial({
+                size: 0.1,
+                vertexColors: true,
+                transparent: true,
+                opacity: 0.8
+            });
+            
+            const stars = new THREE.Points(starsGeometry, starsMaterial);
+            scene.add(stars);
+            
+            // Nebula backdrop
+            const nebulaGeometry = new THREE.PlaneGeometry(60, 60);
+            const nebulaMaterial = new THREE.ShaderMaterial({
+                uniforms: {
+                    time: { value: 0 }
+                },
+                vertexShader: `
+                    varying vec2 vUv;
+                    void main() {
+                        vUv = uv;
+                        gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+                    }
+                `,
+                fragmentShader: `
+                    uniform float time;
+                    varying vec2 vUv;
+                    
+                    float noise(vec2 p) {
+                        return fract(sin(dot(p, vec2(12.9898, 78.233))) * 43758.5453);
+                    }
+                    
+                    void main() {
+                        vec2 uv = vUv;
+                        float n = noise(uv * 5.0 + time * 0.01);
+                        
+                        vec3 color1 = vec3(0.1, 0.0, 0.2);
+                        vec3 color2 = vec3(0.0, 0.1, 0.3);
+                        vec3 color = mix(color1, color2, n);
+                        
+                        float alpha = 0.3 * (1.0 - length(uv - 0.5));
+                        gl_FragColor = vec4(color, alpha);
+                    }
+                `,
+                transparent: true,
+                side: THREE.DoubleSide
+            });
+            
+            const nebula = new THREE.Mesh(nebulaGeometry, nebulaMaterial);
+            nebula.position.z = -40;
+            scene.add(nebula);
+        }
+        
+        function createShipInterior() {
+            // Floor
+            const floorGeometry = new THREE.CircleGeometry(8, 64);
+            const floorMaterial = new THREE.MeshStandardMaterial({
+                color: 0x1a1a2e,
+                metalness: 0.8,
+                roughness: 0.4
+            });
+            const floor = new THREE.Mesh(floorGeometry, floorMaterial);
+            floor.rotation.x = -Math.PI / 2;
+            floor.position.y = 0;
+            scene.add(floor);
+            
+            // Floor grid lines
+            const gridHelper = new THREE.GridHelper(16, 32, 0x00d4ff, 0x1a2a4a);
+            gridHelper.position.y = 0.01;
+            gridHelper.material.opacity = 0.3;
+            gridHelper.material.transparent = true;
+            scene.add(gridHelper);
+            
+            // Observation window frames (curved panels suggesting ship hull)
+            for (let i = 0; i < 5; i++) {
+                const angle = (i / 5) * Math.PI - Math.PI / 2;
+                const frameGeometry = new THREE.BoxGeometry(0.1, 4, 0.1);
+                const frameMaterial = new THREE.MeshStandardMaterial({
+                    color: 0x333344,
+                    metalness: 0.9,
+                    roughness: 0.2
+                });
+                const frame = new THREE.Mesh(frameGeometry, frameMaterial);
+                frame.position.set(Math.sin(angle) * 7, 2, Math.cos(angle) * 7 - 3);
+                scene.add(frame);
+            }
+        }
+        
+        // ===== DOME =====
+        function createDome() {
+            dome = new THREE.Group();
+            dome.position.copy(CONFIG.domePosition);
+            
+            // Glass dome
+            const glassGeometry = new THREE.SphereGeometry(CONFIG.domeRadius, 64, 32, 0, Math.PI * 2, 0, Math.PI / 2);
+            const glassMaterial = new THREE.MeshPhysicalMaterial({
+                color: 0x88ccff,
+                metalness: 0,
+                roughness: 0,
+                transmission: 0.9,
+                transparent: true,
+                opacity: 0.25,
+                thickness: 0.2,
+                clearcoat: 1,
+                clearcoatRoughness: 0,
+                side: THREE.DoubleSide,
+                envMapIntensity: 0.5
+            });
+            const glassDome = new THREE.Mesh(glassGeometry, glassMaterial);
+            dome.add(glassDome);
+            
+            // Metal frame - base ring
+            const baseRingGeometry = new THREE.TorusGeometry(CONFIG.domeRadius, 0.05, 16, 64);
+            const metalMaterial = new THREE.MeshStandardMaterial({
+                color: 0x666680,
+                metalness: 0.9,
+                roughness: 0.2
+            });
+            const baseRing = new THREE.Mesh(baseRingGeometry, metalMaterial);
+            baseRing.rotation.x = Math.PI / 2;
+            dome.add(baseRing);
+            
+            // Accent ring (the red one from the model)
+            const accentMaterial = new THREE.MeshStandardMaterial({
+                color: 0xcc3333,
+                metalness: 0.8,
+                roughness: 0.3,
+                emissive: 0x441111,
+                emissiveIntensity: 0.5
+            });
+            const accentRing = new THREE.Mesh(
+                new THREE.TorusGeometry(CONFIG.domeRadius * 0.9, 0.03, 16, 64),
+                accentMaterial
+            );
+            accentRing.rotation.x = Math.PI / 2;
+            accentRing.position.y = 0.1;
+            dome.add(accentRing);
+            
+            // Vertical ribs
+            for (let i = 0; i < 8; i++) {
+                const angle = (i / 8) * Math.PI * 2;
+                const ribGeometry = new THREE.TorusGeometry(CONFIG.domeRadius, 0.025, 8, 32, Math.PI / 2);
+                const rib = new THREE.Mesh(ribGeometry, metalMaterial);
+                rib.rotation.y = angle;
+                rib.rotation.x = Math.PI / 2;
+                rib.rotation.order = 'YXZ';
+                dome.add(rib);
+            }
+            
+            // Base platform
+            const baseGeometry = new THREE.CylinderGeometry(CONFIG.domeRadius * 1.1, CONFIG.domeRadius * 1.2, 0.15, 32);
+            const baseMaterial = new THREE.MeshStandardMaterial({
+                color: 0x222233,
+                metalness: 0.7,
+                roughness: 0.4
+            });
+            const base = new THREE.Mesh(baseGeometry, baseMaterial);
+            base.position.y = -0.075;
+            dome.add(base);
+            
+            // Inner platform (synthesis surface)
+            const innerPlatform = new THREE.Mesh(
+                new THREE.CylinderGeometry(CONFIG.domeRadius * 0.8, CONFIG.domeRadius * 0.8, 0.05, 32),
+                new THREE.MeshStandardMaterial({
+                    color: 0x0a0a15,
+                    metalness: 0.5,
+                    roughness: 0.6,
+                    emissive: 0x001020,
+                    emissiveIntensity: 0.3
+                })
+            );
+            innerPlatform.position.y = 0.03;
+            dome.add(innerPlatform);
+            
+            scene.add(dome);
+        }
+        
+        // ===== PARAMETER ORBS =====
+        function createParameterOrbs() {
+            const orbData = [
+                { name: 'BLOOM', color: CONFIG.accentCyan, position: new THREE.Vector3(-1.5, 1.2, -1) },
+                { name: 'MATRIX', color: CONFIG.accentMagenta, position: new THREE.Vector3(1.5, 1.2, -1) },
+                { name: 'FLOW', color: CONFIG.accentAmber, position: new THREE.Vector3(-1.5, 1.2, -2) },
+                { name: 'MYTH', color: CONFIG.accentViolet, position: new THREE.Vector3(1.5, 1.2, -2) }
+            ];
+            
+            orbData.forEach((data, index) => {
+                const orbGroup = new THREE.Group();
+                orbGroup.position.copy(data.position);
+                
+                // Core orb
+                const orbGeometry = new THREE.SphereGeometry(0.12, 32, 32);
+                const orbMaterial = new THREE.MeshStandardMaterial({
+                    color: data.color,
+                    emissive: data.color,
+                    emissiveIntensity: 0.5,
+                    metalness: 0.3,
+                    roughness: 0.2
+                });
+                const orb = new THREE.Mesh(orbGeometry, orbMaterial);
+                orbGroup.add(orb);
+                
+                // Glow
+                const glowGeometry = new THREE.SphereGeometry(0.18, 32, 32);
+                const glowMaterial = new THREE.MeshBasicMaterial({
+                    color: data.color,
+                    transparent: true,
+                    opacity: 0.2
+                });
+                const glow = new THREE.Mesh(glowGeometry, glowMaterial);
+                orbGroup.add(glow);
+                
+                // Ring
+                const ringGeometry = new THREE.TorusGeometry(0.2, 0.01, 8, 32);
+                const ringMaterial = new THREE.MeshBasicMaterial({
+                    color: data.color,
+                    transparent: true,
+                    opacity: 0.5
+                });
+                const ring = new THREE.Mesh(ringGeometry, ringMaterial);
+                ring.rotation.x = Math.PI / 2;
+                orbGroup.add(ring);
+                
+                // Value indicator (vertical bar)
+                const barGeometry = new THREE.BoxGeometry(0.02, 0.3, 0.02);
+                const barMaterial = new THREE.MeshBasicMaterial({
+                    color: data.color,
+                    transparent: true,
+                    opacity: 0.8
+                });
+                const bar = new THREE.Mesh(barGeometry, barMaterial);
+                bar.position.y = 0.3;
+                orbGroup.add(bar);
+                
+                orbGroup.userData = {
+                    name: data.name,
+                    paramKey: data.name.toLowerCase(),
+                    baseColor: data.color,
+                    bar: bar
+                };
+                
+                parameterOrbs.push(orbGroup);
+                scene.add(orbGroup);
+            });
+        }
+        
+        // ===== FLOATING UI =====
+        function createFloatingUI() {
+            // Status panel
+            const statusPanel = createTextPanel('◆ OBSERVATION CHAMBER', 0.4, 0.15);
+            statusPanel.position.set(0, 2.5, -3);
+            statusPanel.userData.type = 'status';
+            scene.add(statusPanel);
+            floatingPanels.push(statusPanel);
+            
+            // World info panel (initially hidden)
+            const worldPanel = createTextPanel('AWAITING SYNTHESIS', 0.6, 0.3);
+            worldPanel.position.set(0, 0.3, -1.5);
+            worldPanel.rotation.x = -Math.PI / 6;
+            worldPanel.visible = false;
+            worldPanel.userData.type = 'world';
+            scene.add(worldPanel);
+            floatingPanels.push(worldPanel);
+        }
+        
+        function createTextPanel(text, width, height) {
+            const canvas = document.createElement('canvas');
+            const ctx = canvas.getContext('2d');
+            canvas.width = 512;
+            canvas.height = Math.floor(512 * (height / width));
+            
+            // Background
+            ctx.fillStyle = 'rgba(10, 14, 26, 0.9)';
+            ctx.fillRect(0, 0, canvas.width, canvas.height);
+            
+            // Border
+            ctx.strokeStyle = 'rgba(0, 212, 255, 0.5)';
+            ctx.lineWidth = 2;
+            ctx.strokeRect(2, 2, canvas.width - 4, canvas.height - 4);
+            
+            // Text
+            ctx.fillStyle = '#e8f0ff';
+            ctx.font = '32px sans-serif';
+            ctx.textAlign = 'center';
+            ctx.textBaseline = 'middle';
+            ctx.fillText(text, canvas.width / 2, canvas.height / 2);
+            
+            const texture = new THREE.CanvasTexture(canvas);
+            const material = new THREE.MeshBasicMaterial({
+                map: texture,
+                transparent: true,
+                side: THREE.DoubleSide
+            });
+            
+            const geometry = new THREE.PlaneGeometry(width, height);
+            const panel = new THREE.Mesh(geometry, material);
+            panel.userData.canvas = canvas;
+            panel.userData.ctx = ctx;
+            panel.userData.texture = texture;
+            
+            return panel;
+        }
+        
+        function updateTextPanel(panel, lines, color = '#e8f0ff') {
+            const ctx = panel.userData.ctx;
+            const canvas = panel.userData.canvas;
+            
+            // Clear
+            ctx.fillStyle = 'rgba(10, 14, 26, 0.95)';
+            ctx.fillRect(0, 0, canvas.width, canvas.height);
+            
+            // Border
+            ctx.strokeStyle = color;
+            ctx.lineWidth = 3;
+            ctx.strokeRect(4, 4, canvas.width - 8, canvas.height - 8);
+            
+            // Text
+            ctx.fillStyle = color;
+            ctx.font = 'bold 28px sans-serif';
+            ctx.textAlign = 'center';
+            
+            const lineHeight = 40;
+            const startY = canvas.height / 2 - ((lines.length - 1) * lineHeight) / 2;
+            
+            lines.forEach((line, i) => {
+                ctx.fillText(line, canvas.width / 2, startY + i * lineHeight);
+            });
+            
+            panel.userData.texture.needsUpdate = true;
+        }
+        
+        // ===== CONTROLLERS =====
+        function setupControllers() {
+            // Controller 0 (usually right hand)
+            const controller0 = renderer.xr.getController(0);
+            controller0.addEventListener('selectstart', onSelectStart);
+            controller0.addEventListener('selectend', onSelectEnd);
+            controller0.addEventListener('squeezestart', onSqueezeStart);
+            controller0.addEventListener('squeezeend', onSqueezeEnd);
+            controller0.userData.index = 0;
+            scene.add(controller0);
+            controllers.push(controller0);
+            
+            // Controller 1 (usually left hand)
+            const controller1 = renderer.xr.getController(1);
+            controller1.addEventListener('selectstart', onSelectStart);
+            controller1.addEventListener('selectend', onSelectEnd);
+            controller1.addEventListener('squeezestart', onSqueezeStart);
+            controller1.addEventListener('squeezeend', onSqueezeEnd);
+            controller1.userData.index = 1;
+            scene.add(controller1);
+            controllers.push(controller1);
+            
+            // Controller grips (for hand models)
+            const controllerGrip0 = renderer.xr.getControllerGrip(0);
+            controllerGrip0.add(createControllerModel(0));
+            scene.add(controllerGrip0);
+            controllerGrips.push(controllerGrip0);
+            
+            const controllerGrip1 = renderer.xr.getControllerGrip(1);
+            controllerGrip1.add(createControllerModel(1));
+            scene.add(controllerGrip1);
+            controllerGrips.push(controllerGrip1);
+            
+            // Add ray visualization to controllers
+            controllers.forEach(controller => {
+                const rayGeometry = new THREE.BufferGeometry().setFromPoints([
+                    new THREE.Vector3(0, 0, 0),
+                    new THREE.Vector3(0, 0, -3)
+                ]);
+                const rayMaterial = new THREE.LineBasicMaterial({
+                    color: CONFIG.accentCyan,
+                    transparent: true,
+                    opacity: 0.5
+                });
+                const ray = new THREE.Line(rayGeometry, rayMaterial);
+                ray.name = 'ray';
+                controller.add(ray);
+            });
+        }
+        
+        function createControllerModel(index) {
+            // Simple geometric controller representation
+            const group = new THREE.Group();
+            
+            const handleGeometry = new THREE.CylinderGeometry(0.02, 0.025, 0.1, 8);
+            const handleMaterial = new THREE.MeshStandardMaterial({
+                color: index === 0 ? CONFIG.accentCyan : CONFIG.accentMagenta,
+                metalness: 0.8,
+                roughness: 0.2
+            });
+            const handle = new THREE.Mesh(handleGeometry, handleMaterial);
+            handle.rotation.x = Math.PI / 2;
+            group.add(handle);
+            
+            // Glow tip
+            const tipGeometry = new THREE.SphereGeometry(0.015, 16, 16);
+            const tipMaterial = new THREE.MeshBasicMaterial({
+                color: index === 0 ? CONFIG.accentCyan : CONFIG.accentMagenta
+            });
+            const tip = new THREE.Mesh(tipGeometry, tipMaterial);
+            tip.position.z = -0.05;
+            group.add(tip);
+            
+            return group;
+        }
+        
+        // ===== CONTROLLER EVENTS =====
+        function onSelectStart(event) {
+            const controller = event.target;
+            controller.userData.isSelecting = true;
+            
+            if (!isSynthesizing) {
+                synthesizeWorld();
+            }
+        }
+        
+        function onSelectEnd(event) {
+            const controller = event.target;
+            controller.userData.isSelecting = false;
+        }
+        
+        function onSqueezeStart(event) {
+            const controller = event.target;
+            controller.userData.isSqueezing = true;
+        }
+        
+        function onSqueezeEnd(event) {
+            const controller = event.target;
+            controller.userData.isSqueezing = false;
+        }
+        
+        // ===== PLANET CREATION =====
+        function createPlanet(params, isEctopic) {
+            const planetGroup = new THREE.Group();
+            
+            // Color based on parameters
+            const hue = (params.bloom * 0.006 + params.flow * 0.003) % 1;
+            const saturation = 0.5 + params.matrix * 0.003;
+            const lightness = 0.4 + params.myth * 0.002;
+            
+            const baseColor = new THREE.Color().setHSL(hue, saturation, lightness);
+            const atmosphereColor = new THREE.Color().setHSL((hue + 0.1) % 1, saturation * 0.8, lightness * 1.2);
+            
+            // Planet core
+            const planetGeometry = new THREE.SphereGeometry(0.6, 64, 64);
+            const planetMaterial = new THREE.MeshPhongMaterial({
+                color: baseColor,
+                emissive: baseColor.clone().multiplyScalar(0.15),
+                shininess: 30,
+                transparent: true,
+                opacity: isEctopic ? 0.85 : 1
+            });
+            const planetMesh = new THREE.Mesh(planetGeometry, planetMaterial);
+            planetGroup.add(planetMesh);
+            
+            // Atmosphere
+            const atmosphereGeometry = new THREE.SphereGeometry(0.72, 32, 32);
+            const atmosphereMaterial = new THREE.MeshBasicMaterial({
+                color: atmosphereColor,
+                transparent: true,
+                opacity: 0.15,
+                side: THREE.BackSide
+            });
+            atmosphere = new THREE.Mesh(atmosphereGeometry, atmosphereMaterial);
+            planetGroup.add(atmosphere);
+            
+            // Surface features based on parameters
+            if (params.flow > 30) {
+                // Cloud layer
+                const cloudGeometry = new THREE.SphereGeometry(0.62, 32, 32);
+                const cloudMaterial = new THREE.MeshBasicMaterial({
+                    color: 0xffffff,
+                    transparent: true,
+                    opacity: params.flow * 0.004,
+                    alphaMap: createNoiseTexture()
+                });
+                const clouds = new THREE.Mesh(cloudGeometry, cloudMaterial);
+                planetGroup.add(clouds);
+            }
+            
+            // Rings for high-tech worlds
+            if (params.matrix > 60) {
+                const ringGeometry = new THREE.RingGeometry(0.85, 1.1, 64);
+                const ringMaterial = new THREE.MeshBasicMaterial({
+                    color: atmosphereColor,
+                    transparent: true,
+                    opacity: 0.4,
+                    side: THREE.DoubleSide
+                });
+                const ring = new THREE.Mesh(ringGeometry, ringMaterial);
+                ring.rotation.x = Math.PI / 2.5;
+                planetGroup.add(ring);
+            }
+            
+            // Fractures for ectopic worlds
+            if (isEctopic) {
+                const fractures = createFractures(baseColor);
+                planetGroup.add(fractures);
+            }
+            
+            return planetGroup;
+        }
+        
+        function createNoiseTexture() {
+            const canvas = document.createElement('canvas');
+            canvas.width = 256;
+            canvas.height = 256;
+            const ctx = canvas.getContext('2d');
+            
+            const imageData = ctx.createImageData(256, 256);
+            for (let i = 0; i < imageData.data.length; i += 4) {
+                const v = Math.random() * 255;
+                imageData.data[i] = v;
+                imageData.data[i + 1] = v;
+                imageData.data[i + 2] = v;
+                imageData.data[i + 3] = v > 128 ? 255 : 0;
+            }
+            ctx.putImageData(imageData, 0, 0);
+            
+            return new THREE.CanvasTexture(canvas);
+        }
+        
+        function createFractures(baseColor) {
+            const fractureGroup = new THREE.Group();
+            const fractureCount = 5 + Math.floor(Math.random() * 5);
+            
+            for (let i = 0; i < fractureCount; i++) {
+                const points = [];
+                const startTheta = Math.random() * Math.PI * 2;
+                const startPhi = Math.random() * Math.PI;
+                
+                for (let j = 0; j < 5; j++) {
+                    const theta = startTheta + (j * 0.2) + (Math.random() - 0.5) * 0.3;
+                    const phi = startPhi + (Math.random() - 0.5) * 0.5;
+                    const r = 0.61;
+                    
+                    points.push(new THREE.Vector3(
+                        r * Math.sin(phi) * Math.cos(theta),
+                        r * Math.cos(phi),
+                        r * Math.sin(phi) * Math.sin(theta)
+                    ));
+                }
+                
+                const geometry = new THREE.BufferGeometry().setFromPoints(points);
+                const material = new THREE.LineBasicMaterial({
+                    color: CONFIG.accentMagenta,
+                    transparent: true,
+                    opacity: 0.7
+                });
+                const fracture = new THREE.Line(geometry, material);
+                fractureGroup.add(fracture);
+            }
+            
+            return fractureGroup;
+        }
+        
+        // ===== WORLD SYNTHESIS =====
+        function synthesizeWorld() {
+            if (isSynthesizing) return;
+            isSynthesizing = true;
+            
+            updateStatus('SYNTHESIZING...');
+            
+            // Determine fate
+            const isEctopic = Math.random() < CONFIG.ectopicChance;
+            
+            // Generate world data
+            const name = prefixes[Math.floor(Math.random() * prefixes.length)] + ' ' + 
+                        suffixes[Math.floor(Math.random() * suffixes.length)];
+            const fateType = isEctopic ? 'ectopic' : 'stable';
+            const subtype = fateSubtypes[fateType][Math.floor(Math.random() * fateSubtypes[fateType].length)];
+            const lifespan = lifespans[fateType][Math.floor(Math.random() * lifespans[fateType].length)];
+            
+            currentWorld = {
+                name,
+                isEctopic,
+                subtype,
+                lifespan,
+                params: { ...parameters }
+            };
+            
+            // Remove existing planet
+            if (planet) {
+                dome.remove(planet);
+            }
+            
+            // Create new planet
+            planet = createPlanet(parameters, isEctopic);
+            planet.position.y = 1;
+            planet.scale.set(0, 0, 0);
+            dome.add(planet);
+            
+            // Animate formation
+            animatePlanetFormation(() => {
+                isSynthesizing = false;
+                
+                const color = isEctopic ? '#ff00aa' : '#00d4ff';
+                updateStatus(isEctopic ? 'ECTOPIC DETECTED' : 'STABLE FORMATION');
+                
+                // Update world panel
+                const worldPanel = floatingPanels.find(p => p.userData.type === 'world');
+                if (worldPanel) {
+                    worldPanel.visible = true;
+                    updateTextPanel(worldPanel, [
+                        currentWorld.name,
+                        currentWorld.subtype,
+                        currentWorld.lifespan
+                    ], color);
+                }
+            });
+        }
+        
+        function animatePlanetFormation(onComplete) {
+            const duration = 2000;
+            const startTime = Date.now();
+            
+            function animate() {
+                const elapsed = Date.now() - startTime;
+                const progress = Math.min(elapsed / duration, 1);
+                
+                // Ease out cubic
+                const eased = 1 - Math.pow(1 - progress, 3);
+                planet.scale.set(eased, eased, eased);
+                
+                if (progress < 1) {
+                    requestAnimationFrame(animate);
+                } else {
+                    if (onComplete) onComplete();
+                }
+            }
+            
+            animate();
+        }
+        
+        // ===== INPUT =====
+        function onKeyDown(event) {
+            if (event.code === 'Space') {
+                synthesizeWorld();
+            } else if (event.code === 'KeyC') {
+                clearChamber();
+            }
+        }
+        
+        function clearChamber() {
+            if (planet) {
+                dome.remove(planet);
+                planet = null;
+            }
+            currentWorld = null;
+            
+            const worldPanel = floatingPanels.find(p => p.userData.type === 'world');
+            if (worldPanel) {
+                worldPanel.visible = false;
+            }
+            
+            updateStatus('CHAMBER CLEARED');
+        }
+        
+        function updateStatus(text) {
+            document.getElementById('status').textContent = text;
+            
+            const statusPanel = floatingPanels.find(p => p.userData.type === 'status');
+            if (statusPanel) {
+                updateTextPanel(statusPanel, ['◆ ' + text], '#00d4ff');
+            }
+        }
+        
+        // ===== CONTROLLER INTERACTION =====
+        function handleControllerInput() {
+            const session = renderer.xr.getSession();
+            if (!session) return;
+            
+            controllers.forEach((controller, index) => {
+                if (controller.userData.isSqueezing) {
+                    // Get controller position for parameter adjustment
+                    const pos = new THREE.Vector3();
+                    controller.getWorldPosition(pos);
+                    
+                    // Map controller height to parameter value
+                    // Right hand (index 0): bloom/matrix
+                    // Left hand (index 1): flow/myth
+                    
+                    const normalizedY = THREE.MathUtils.clamp((pos.y - 0.5) / 1.5, 0, 1);
+                    const normalizedX = THREE.MathUtils.clamp((pos.x + 1) / 2, 0, 1);
+                    
+                    if (index === 0) {
+                        parameters.bloom = Math.round(normalizedY * 100);
+                        parameters.matrix = Math.round(normalizedX * 100);
+                    } else {
+                        parameters.flow = Math.round(normalizedY * 100);
+                        parameters.myth = Math.round(normalizedX * 100);
+                    }
+                    
+                    // Update orb visuals
+                    updateParameterOrbs();
+                }
+            });
+        }
+        
+        function updateParameterOrbs() {
+            parameterOrbs.forEach(orb => {
+                const key = orb.userData.paramKey;
+                const value = parameters[key];
+                const normalizedValue = value / 100;
+                
+                // Update bar scale
+                orb.userData.bar.scale.y = 0.3 + normalizedValue * 2;
+                orb.userData.bar.position.y = 0.15 + normalizedValue * 0.3;
+            });
+        }
+        
+        // ===== ANIMATION LOOP =====
+        function animate() {
+            const time = Date.now() * 0.001;
+            
+            // Handle VR controller input
+            handleControllerInput();
+            
+            // Rotate planet
+            if (planet) {
+                planet.rotation.y += 0.005;
+                
+                // Gentle bob
+                planet.position.y = 1 + Math.sin(time) * 0.03;
+            }
+            
+            // Animate parameter orbs
+            parameterOrbs.forEach((orb, i) => {
+                orb.rotation.y = time * 0.5 + i * Math.PI / 2;
+                orb.children[2].rotation.z = time; // Ring rotation
+            });
+            
+            // Dome ambient animation
+            if (dome) {
+                dome.rotation.y = Math.sin(time * 0.1) * 0.02;
+            }
+            
+            renderer.render(scene, camera);
+        }
+        
+        // ===== RESIZE =====
+        function onWindowResize() {
+            camera.aspect = window.innerWidth / window.innerHeight;
+            camera.updateProjectionMatrix();
+            renderer.setSize(window.innerWidth, window.innerHeight);
+        }
+        
+        // ===== START =====
+        init();
+    </script>
+</body>
+</html>
